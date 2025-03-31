@@ -1,8 +1,7 @@
 import requests
-import time
-import random
-import warnings
 import json
+import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import zip_longest
 
 warnings.filterwarnings("ignore", category=requests.packages.urllib3.exceptions.InsecureRequestWarning)
@@ -13,7 +12,7 @@ OUTPUT_FILE = 'eligible.txt'
 URL_TEMPLATE = 'https://airdrop-api.initia.xyz/info/initia/{}'
 
 HEADERS = {
-    'User-Agent': 'curl/8.5.0',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
     'Accept': '*/*',
     'Connection': 'keep-alive',
     'Referer': 'https://airdrop.initia.xyz/',
@@ -35,88 +34,61 @@ def format_proxy(proxy_line):
         'https': f'http://{user}:{password}@{ip}:{port}'
     }
 
-def check_address(address, proxy):
+def check_address(address, proxy, proxy_str):
     try:
         url = URL_TEMPLATE.format(address.lower())
-        time.sleep(random.uniform(0.6, 1.2))
         response = requests.get(url, headers=HEADERS, proxies=proxy, timeout=10, verify=False)
 
         if response.status_code == 200:
             try:
                 data = response.json()
             except json.JSONDecodeError:
-                return {'address': address, 'error': "Invalid JSON"}
+                return None
 
             amount_raw = data.get('amount', 'N/A')
-            is_zero = amount_raw == '0' or amount_raw == 0
+            amount_value = round(int(amount_raw) / 1_000_000, 2) if amount_raw != 'N/A' else 0
+            result_line = (f"{address:<42} | {proxy_str:<21} | {amount_value:>10.2f} | "
+                           f"{data.get('xp_rank','N/A'):>8} | {data.get('jennie_level','N/A'):>6} | "
+                           f"{data.get('frame_level','N/A'):>5} | {data.get('filet_mignon','N/A'):>5} | ✅ ELIGIBLE")
 
-            return {
-                'address': address,
-                'amount': amount_raw,
-                'xp_rank': data.get('xp_rank', 'N/A'),
-                'jennie_level': data.get('jennie_level', 'N/A'),
-                'frame_level': data.get('frame_level', 'N/A'),
-                'filet_mignon': data.get('filet_mignon', 'N/A'),
-                'status': '❌ Not eligible' if is_zero else '✅ ELIGIBLE'
-            }
-        
+            # Сохраняем сразу
+            with open(OUTPUT_FILE, 'a') as f:
+                f.write(address + '\n')
+
+            return result_line
+
         elif response.status_code == 403:
-            return {'address': address, 'status': '❌ Not eligible'}
+            return f"{address:<42} | {proxy_str:<21} | {'-':>10} | {'-':>8} | {'-':>6} | {'-':>5} | {'-':>5} | ❌ Not eligible"
         else:
-            return {'address': address, 'status': f"❌ Error {response.status_code}"}
+            return f"{address:<42} | {proxy_str:<21} | {'-':>10} | {'-':>8} | {'-':>6} | {'-':>5} | {'-':>5} | ❌ Error {response.status_code}"
+
     except Exception as e:
-        return {'address': address, 'status': f"❌ {str(e)}"}
+        return f"{address:<42} | {proxy_str:<21} | {'-':>10} | {'-':>8} | {'-':>6} | {'-':>5} | {'-':>5} | ❌ {str(e)}"
 
 def main():
     addresses = load_addresses(ADDRESS_FILE)
     raw_proxies = load_proxies(PROXY_FILE)
     proxies = [format_proxy(p) for p in raw_proxies]
-    proxy_texts = [p.split(':')[0] for p in raw_proxies]  # лише IP
+    proxy_texts = [p.split(':')[0] for p in raw_proxies]
     address_proxy_pairs = list(zip_longest(addresses, proxies, proxy_texts))
-
-    eligible_results = []
-    amount_list = []
 
     print(f"{'#':<4} | {'Address':<42} | {'Proxy':<21} | {'Amount':>10} | {'XP Rank':>8} | {'Jennie':>6} | {'Frame':>5} | {'Filet':>5} | {'Status':<15}")
     print("-" * 128)
 
-    for idx, (address, proxy, proxy_str) in enumerate(address_proxy_pairs, start=1):
-        if not address:
-            continue
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        future_to_data = {
+            executor.submit(check_address, addr, prox, prox_str): (i, addr)
+            for i, (addr, prox, prox_str) in enumerate(address_proxy_pairs, 1) if addr
+        }
 
-        result = check_address(address, proxy)
-        status = result.get('status', '❌ Unknown')
-
-        amount_raw = result.get('amount', 'N/A')
-        amount_value = round(int(amount_raw) / 1_000_000, 2) if amount_raw != 'N/A' else 0
-        amount_list.append(amount_value)
-        amount_formatted = f"{amount_value:>10.2f}".replace('.', ',')
-
-        print(f"{idx:<4} | {address:<42} | {proxy_str:<21} | {amount_formatted} | "
-              f"{result.get('xp_rank','N/A'):>8} | {result.get('jennie_level','N/A'):>6} | "
-              f"{result.get('frame_level','N/A'):>5} | {result.get('filet_mignon','N/A'):>5} | {status:<15}")
-
-        if status.startswith("✅"):
-            eligible_results.append({
-                'address': address,
-                'amount': amount_raw
-            })
-
-    print("-" * 128)
-    print(f"✅ Eligible: {len(eligible_results)} / {len(addresses)}")
-
-    # Додатковий вивід списку Amount
-    print("\nВивід токенів для кожного акаунта:")
-    for amt in amount_list:
-        print(str(amt).replace('.', ','))
-
-    print(f"\nСума всіх токенів: {str(round(sum(amount_list), 2)).replace('.', ',')}")
-
-    # Запис eligible у файл
-    if eligible_results:
-        with open(OUTPUT_FILE, 'w') as f:
-            for entry in eligible_results:
-                f.write(entry['address'] + '\n')
+        for future in as_completed(future_to_data):
+            idx, addr = future_to_data[future]
+            try:
+                result_line = future.result()
+                if result_line:
+                    print(f"{idx:<4} | {result_line}")
+            except Exception as exc:
+                print(f"{idx:<4} | {addr:<42} | ERROR: {exc}")
 
 if __name__ == "__main__":
     main()
