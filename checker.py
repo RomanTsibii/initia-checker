@@ -47,15 +47,19 @@ def check_address(address, proxy):
             except json.JSONDecodeError:
                 return {'address': address, 'error': "Invalid JSON"}
 
+            amount_raw = data.get('amount', 'N/A')
+            is_zero = amount_raw == '0' or amount_raw == 0
+
             return {
                 'address': address,
-                'amount': data.get('amount', 'N/A'),
+                'amount': amount_raw,
                 'xp_rank': data.get('xp_rank', 'N/A'),
                 'jennie_level': data.get('jennie_level', 'N/A'),
                 'frame_level': data.get('frame_level', 'N/A'),
                 'filet_mignon': data.get('filet_mignon', 'N/A'),
-                'status': '✅ ELIGIBLE'
+                'status': '❌ Not eligible' if is_zero else '✅ ELIGIBLE'
             }
+        
         elif response.status_code == 403:
             return {'address': address, 'status': '❌ Not eligible'}
         else:
