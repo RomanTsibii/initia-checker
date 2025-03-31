@@ -16,7 +16,7 @@
 
 ```bash
 # Клонувати репозиторій
-git clone https://github.com/ІМ'Я-КОРИСТУВАЧА/initia-checker.git
+git clone https://github.com/RomanTsibii/initia-checker.git
 cd initia-checker
 
 # Створити та активувати віртуальне середовище
