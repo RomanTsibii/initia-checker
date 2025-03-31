@@ -25,3 +25,13 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 
 # Встановити залежності
 pip install requests
+```
+
+## ⚙️ Редагування address.txt і proxy.txt 
+
+### Впишіть всі адреси EVM де кожна з нового рядка
+ 
+### Впишіть всі проексі у форматі ip:port:user:password де кожна з нового рядка 
+
+### Всі акаунти будуть перевірятись 1 адреса = 1 ІР, якщо ІР нема - то буде помилка 
+
